@@ -9,7 +9,7 @@ from tinygrad.nn.optim import AdamW
 from tinygrad.tensor import Tensor
 from tinygrad.engine.jit import TinyJit
 
-from transformer import DecoderTransformer
+from src.transformer import DecoderTransformer
 
 
 class StoryDataset:
@@ -134,6 +134,6 @@ if __name__ == "__main__":
 
         print(f"Loss: {losses[epoch]}, Accuracy: {accuracies[epoch]}")
 
-    generation = model.generate(Tensor([train_dataset.stoi[s] for s in "Hello"], requires_grad=False).reshape(1, -1), 32)
+    generation = model.generate(Tensor([train_dataset.stoi[s] for s in "Would"], requires_grad=False).reshape(1, -1), 32, do_sample=True, top_k=3)
     print(generation.shape)
     print("".join([train_dataset.itos[s] for s in list(generation.numpy().reshape(-1))]))

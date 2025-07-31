@@ -9,7 +9,7 @@ from tinygrad.nn.optim import AdamW
 from tinygrad.tensor import Tensor
 from tinygrad.engine.jit import TinyJit
 
-from transformer import DecoderTransformer
+from src.transformer import DecoderTransformer
 
 
 # dataset idea from https://github.com/karpathy/minGPT/blob/master/projects/adder/adder.py
@@ -102,11 +102,11 @@ def evalauate(model: DecoderTransformer, test_dataset: AdderDataset, return_pred
 
 if __name__ == "__main__":
     lr = 3e-4
-    epochs = 10
+    epochs = 30
     batch_size = 64
     seq_len = 6
 
-    model = DecoderTransformer(max_len=seq_len, vocab_dim=10, embed_dim=128, num_heads=8, layers=3)
+    model = DecoderTransformer(max_len=seq_len, vocab_dim=10, embed_dim=128, num_heads=4, layers=3)
 
     X_train, Y_train, X_test, Y_test = make_dataset()
     train_dataset = AdderDataset(X_train, Y_train, batch_size)

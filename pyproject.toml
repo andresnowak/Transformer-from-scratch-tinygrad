@@ -6,6 +6,9 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=2.2.6",
-    "tinygrad>=0.10.3",
+    "tinygrad",
     "tqdm>=4.67.1",
 ]
+
+[tool.uv.sources]
+tinygrad = { git = "https://github.com/tinygrad/tinygrad", rev = "3892ec8264122bc742fad79e75f5a4f83400bd90" }

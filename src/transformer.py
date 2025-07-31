@@ -6,6 +6,9 @@ import functools
 # And https://github.com/tinygrad/tinygrad/blob/24dd0d52edfc32ab6f887f22752145255d8524dc/extra/models/transformer.py#L5
 
 
+# NOTE: depending on how do you do the operations (like doing operations by using intermediary variables for reading), tinygrad can generate a kernel that surpasses the amount of buffers a metal kernel can have (Metal can only have 31, buffers so buffer 31 is already out of bounds). Supposedly it was fixed (https://github.com/tinygrad/tinygrad/pull/10510) but this version still doesn't have a release
+
+
 class TransformerBlock:
     def __init__(self, embed_dim: int, num_heads: int, dropout: int = 0.1):
         assert embed_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
@@ -13,8 +16,7 @@ class TransformerBlock:
         self.num_heads = num_heads
         self.key_dimension = (
             embed_dim // num_heads
-        )  # value dimension = key dimension here
-        self.scaling = 1 / math.sqrt(self.key_dimension)
+        )  # value dimension = key dimension here (head size)
         self.dropout = dropout
 
         self.query = (
@@ -30,12 +32,13 @@ class TransformerBlock:
             Tensor.zeros(embed_dim),
         )
 
-        # self.out = (
-        #     Tensor.scaled_uniform(embed_dim, embed_dim),
-        #     Tensor.zeros(embed_dim),
-        # )
+        self.out = (
+            Tensor.scaled_uniform(embed_dim, embed_dim),
+            Tensor.zeros(embed_dim),
+        )
 
         self.ff = (Tensor.scaled_uniform(embed_dim, embed_dim), Tensor.zeros(embed_dim))
+
         self.ln1 = (Tensor.ones(embed_dim), Tensor.zeros(embed_dim))
         self.ln2 = (Tensor.ones(embed_dim), Tensor.zeros(embed_dim))
 
@@ -72,7 +75,7 @@ class TransformerBlock:
 
         # Scaled dot product
         qk = (
-            query.matmul(key.transpose(-1, -2)) * self.scaling
+            query.matmul(key.transpose(-1, -2)) * (1 / math.sqrt(self.key_dimension))
         )  # (batch, heads, seq_len, seq_len)
 
         if attn_mask is not None:
@@ -85,9 +88,12 @@ class TransformerBlock:
             qk.softmax(axis=-1) @ value
         )  # (batch, heads, seq_len, key_dimension)
 
-        return attn_score.transpose(1, 2).reshape(
+        # we concatenate the heads and mix their represenations (we learn a re-weighting of this heads)
+        attn_score = attn_score.transpose(1, 2).reshape(
             -1, x.shape[1], self.num_heads * self.key_dimension
-        )  # (batch, seq_len, embed_dim)
+        ).linear(*self.out)  # (batch, seq_len, embed_dim)
+
+        return attn_score
 
     def __call__(self, x: Tensor, attn_mask: Tensor | None = None) -> Tensor:
         """
@@ -109,14 +115,12 @@ class TransformerBlock:
         """
 
         # pre-norm
-        attn_score = self.attn(x.layernorm().linear(*self.ln1), attn_mask)
-
-        # residual
+        attn_score = self.attn(x.layernorm().linear(*self.ln1), attn_mask).dropout(self.dropout)
         x = x + attn_score
 
         # ff
         x = x.layernorm().linear(*self.ln2)  # pre-norm
-        ff_out = x.linear(*self.ff).relu()
+        ff_out = x.linear(*self.ff).relu().dropout(self.dropout)
 
         # residual
         x = x + ff_out
@@ -175,7 +179,7 @@ class DecoderTransformer:
         return x.softmax(axis=-1)  # (batch, seq_len, vocab_dim)
 
     def generate(
-        self, sequence: Tensor, max_new_tokens: int, temperature: float = 1.0
+        self, sequence: Tensor, max_new_tokens: int, temperature: float = 1.0, do_sample: bool=False, top_k: int|None=None
     ) -> Tensor:
         """
         Take a conditioning sequence of indices sequence (LongTensor of shape (b,t)) and complete
@@ -203,11 +207,19 @@ class DecoderTransformer:
 
             logits = self.forward(sequence_cond, True)
 
+            if top_k is not None:
+                v, _ = logits.topk(top_k)
+                logits = logits.where(logits < v[:, :, -1].unsqueeze(-1),  -float("inf"))
+
             probs = (logits[:, -1, :] / temperature).softmax(
                 axis=-1
             )  # we only want the last token of the generation (the target)
 
-            idx_next = probs.argmax(axis=-1)
+            if do_sample:
+                idx_next = probs.multinomial(num_samples=1)
+            else:
+                idx_next = probs.argmax(axis=-1)
+
 
             sequence = Tensor.cat(sequence, idx_next.reshape(1, 1), dim=-1)
 
