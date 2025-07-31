@@ -209,7 +209,7 @@ class DecoderTransformer:
 
             if top_k is not None:
                 v, _ = logits.topk(top_k)
-                logits = logits.where(logits < v[:, :, -1].unsqueeze(-1),  -float("inf"))
+                logits = (logits < v[:, :, -1].unsqueeze(-1)).where(-float("inf"), logits)
 
             probs = (logits[:, -1, :] / temperature).softmax(
                 axis=-1
@@ -218,10 +218,9 @@ class DecoderTransformer:
             if do_sample:
                 idx_next = probs.multinomial(num_samples=1)
             else:
-                idx_next = probs.argmax(axis=-1)
+                idx_next = probs.argmax(axis=-1).unsqueeze(-1)
 
-
-            sequence = Tensor.cat(sequence, idx_next.reshape(1, 1), dim=-1)
+            sequence = Tensor.cat(sequence, idx_next, dim=-1)
 
         Tensor.training = temp
 
