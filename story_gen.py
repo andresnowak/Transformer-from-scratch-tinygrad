@@ -17,6 +17,8 @@ class StoryDataset:
         self, data: str, batch_size: int = 32, seq_len: int = 128, shuffle: bool = True
     ):
         chars = sorted(list(set(data)))
+        # Here using a [BOS] token doesn't make sense because we are training from the corpus by grabbing parts of a very big text (so majority of times not beggining of sentences)
+
         data_size, vocab_size = len(data), len(chars)
         print(f"data has {data_size} and vocab size is {vocab_size}")
 
