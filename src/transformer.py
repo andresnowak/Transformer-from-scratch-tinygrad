@@ -10,7 +10,7 @@ import functools
 
 
 class MultiHeadAttn:
-    def __init__(self, embed_dim: int, num_heads: int, ff_dim: int):
+    def __init__(self, embed_dim: int, num_heads: int):
         assert embed_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
 
         self.num_heads = num_heads
@@ -100,15 +100,13 @@ class MultiHeadAttn:
         return attn_score
 
 
-class DecoderTransformerBlock:
+class TransformerBlock:
     def __init__(
         self, embed_dim: int, num_heads: int, ff_dim: int, dropout: float = 0.1
     ):
         self.dropout = dropout
 
-        self.attn_block = MultiHeadAttn(
-            embed_dim=embed_dim, num_heads=num_heads, ff_dim=ff_dim
-        )
+        self.attn_block = MultiHeadAttn(embed_dim=embed_dim, num_heads=num_heads)
 
         self.ff1 = (Tensor.scaled_uniform(embed_dim, ff_dim), Tensor.zeros(ff_dim))
         self.ff2 = (Tensor.scaled_uniform(ff_dim, embed_dim), Tensor.zeros(embed_dim))
@@ -153,6 +151,64 @@ class DecoderTransformerBlock:
         return x  # (batch, seq_len, embed_dim)
 
 
+class EncoderDecoderTransformerBlock:
+    def __init__(
+        self, embed_dim: int, num_heads: int, ff_dim: int, dropout: float = 0.1
+    ):
+        self.dropout = dropout
+
+        self.masked_attn_block = MultiHeadAttn(embed_dim=embed_dim, num_heads=num_heads)
+        self.cross_attn_block = MultiHeadAttn(embed_dim=embed_dim, num_heads=num_heads)
+
+        self.ff1 = (Tensor.scaled_uniform(embed_dim, ff_dim), Tensor.zeros(ff_dim))
+        self.ff2 = (Tensor.scaled_uniform(ff_dim, embed_dim), Tensor.zeros(embed_dim))
+
+        self.ln1 = (Tensor.ones(embed_dim), Tensor.zeros(embed_dim))
+        self.ln2 = (Tensor.ones(embed_dim), Tensor.zeros(embed_dim))
+        self.ln3 = (Tensor.ones(embed_dim), Tensor.zeros(embed_dim))
+
+    def __call__(self, x: Tensor, k: Tensor, v: Tensor, attn_mask: Tensor) -> Tensor:
+        """
+        Transformer block
+
+        Parameters
+        ----------
+        x : Tensor
+            Input sequence of shape (batch, seq_len, embed_dim).
+        k : Tensor
+            Input sequence of shape (batch, seq_len, embed_dim).
+        v : Tensor
+            Input sequence of shape (batch, seq_len, embed_dim).
+        attn_mask : Tensor or None, optional
+            Boolean mask of shape (batch, seq_len, seq_len).
+            Positions that are ``False`` will be masked out (set to -inf)
+            before the softmax.  If ``None``, no masking is applied.
+
+        Returns
+        -------
+        Tensor
+            Output tensor of shape (batch, heads, seq_len, key_dimension).
+        """
+
+        # Masked attention
+        q_k_v = x.layernorm().linear(*self.ln1)
+        x = x + self.masked_attn_block(q_k_v, q_k_v, q_k_v, attn_mask).dropout(
+            self.dropout
+        )
+
+        # Cross attention
+        q = x.layernorm().linear(*self.ln2)
+
+        x = x + self.cross_attn_block(q, k, v, None).dropout(self.dropout)
+
+        # ff
+        x = x + x.layernorm().linear(*self.ln3).linear(*self.ff1).relu().linear(
+            *self.ff2
+        ).dropout(self.dropout)
+
+        return x  # (batch, seq_len, embed_dim)
+
+
 class DecoderTransformer:
     def __init__(
         self,
@@ -168,7 +224,7 @@ class DecoderTransformer:
         self.max_len = max_len
 
         self.transformer_blocks = [
-            DecoderTransformerBlock(embed_dim, num_heads, ff_dim) for _ in range(layers)
+            TransformerBlock(embed_dim, num_heads, ff_dim) for _ in range(layers)
         ]
 
         self.pos_embed = Tensor.scaled_uniform(max_len, embed_dim)
@@ -263,3 +319,148 @@ class DecoderTransformer:
         Tensor.training = temp
 
         return sequence
+
+
+class EncoderDecoderTransformer:
+    def __init__(
+        self,
+        max_len: int,
+        vocab_dim: int,
+        embed_dim: int,
+        num_heads: int,
+        layers: int,
+        ff_dim: int,
+    ):
+        self.vocab_dim = vocab_dim
+        self.embed_dim = embed_dim
+        self.max_len = max_len
+
+        self.encoder_blocks = [
+            TransformerBlock(embed_dim, num_heads, ff_dim) for _ in range(layers)
+        ]
+        self.decoder_blocks = [
+            EncoderDecoderTransformerBlock(embed_dim, num_heads, ff_dim)
+            for _ in range(layers)
+        ]  # decoder with cross attention
+
+        self.enc_pos_embed = Tensor.scaled_uniform(max_len, embed_dim)
+        self.enc_embedder = Tensor.scaled_uniform(vocab_dim, embed_dim)
+
+        self.dec_pos_embed = Tensor.scaled_uniform(max_len, embed_dim)
+        self.dec_embedder = Tensor.scaled_uniform(vocab_dim, embed_dim)
+
+        self.proj_ff = Tensor.scaled_uniform(embed_dim, vocab_dim)
+
+    def forward(self, x_enc: Tensor, x_dec: Tensor, logits_only: bool = True):
+        """
+        Multi-head scaled-dot-product attention.
+
+        Parameters
+        ----------
+        x_enc : Tensor
+            Encoder Input sequence of shape (batch, seq_len, 1).
+        x : Tensor
+            Decoder Input sequence of shape (batch, seq_len, 1).
+
+        Returns
+        -------
+        Tensor
+            Output tensor of shape (batch, seq_len, vocab_dim).
+        """
+
+        batch_size = x_enc.shape[0]
+        enc_seq_len = x_enc.shape[1]
+        dec_seq_len = x_dec.shape[1]
+
+        # assert x_enc.shape[1] == self.max_len
+        # assert x_dec.shape[1] == self.max_len
+
+        # encoder
+
+        onehot_feat = x_enc.int().one_hot(self.vocab_dim)
+
+        x = onehot_feat.dot(self.enc_embedder)  # (batch, seq_len, embed_dim)
+        x = x + self.enc_pos_embed[:enc_seq_len, :]
+
+        encoder_result = functools.reduce(
+            lambda x, f: f(x, None), self.encoder_blocks, x
+        )
+
+        # decoder
+
+        attn_mask = Tensor.ones(dec_seq_len, dec_seq_len).tril()
+
+        onehot_feat = x_dec.int().one_hot(self.vocab_dim)
+        x = onehot_feat.dot(self.dec_embedder)  # (batch, seq_len, embed_dim)
+        x = x + self.dec_pos_embed[:dec_seq_len, :]
+
+        x = functools.reduce(
+            lambda x, f: f(x, encoder_result, encoder_result, attn_mask),
+            self.decoder_blocks,
+            x,
+        )
+
+        x = x.dot(self.proj_ff)  # (batch, seq_len, vocab_dim)
+
+        if logits_only:  # Non tinygrad operations are not supported by jit
+            return x
+
+        return x.softmax(axis=-1)  # (batch, seq_len, vocab_dim)
+
+    def generate(
+        self,
+        enc_sequence: Tensor,
+        dec_sequence: Tensor,
+        max_new_tokens: int,
+        temperature: float = 1.0,
+        do_sample: bool = False,
+        top_k: int | None = None,
+    ) -> Tensor:
+        """
+        Take a conditioning sequence of indices sequence (LongTensor of shape (b,t)) and complete
+        the sequence max_new_tokens times, feeding the predictions back into the model each time.
+
+        Parameters
+        ----------
+        enc : Tensor
+            Encoder sequence of shape (batch, seq_len).
+        dec : Tensor
+            Decoder sequence of shape (batch, seq_len).
+
+        Returns
+        -------
+        Tensor
+            Output tensor of shape (batch, seq_len).
+        """
+        temp = Tensor.training
+        Tensor.training = False
+
+        for _ in range(max_new_tokens):
+            sequence_cond = (
+                dec_sequence
+                if dec_sequence.shape[1] <= self.max_len
+                else dec_sequence[:, -self.max_len :]
+            )
+
+            logits = self.forward(enc_sequence, sequence_cond, True)
+
+            if top_k is not None:
+                v, _ = logits.topk(top_k)
+                logits = (logits < v[:, :, -1].unsqueeze(-1)).where(
+                    -float("inf"), logits
+                )
+
+            probs = (logits[:, -1, :] / temperature).softmax(
+                axis=-1
+            )  # we only want the last token of the generation (the target)
+
+            if do_sample:
+                idx_next = probs.multinomial(num_samples=1)
+            else:
+                idx_next = probs.argmax(axis=-1).unsqueeze(-1)
+
+            dec_sequence = Tensor.cat(dec_sequence, idx_next, dim=-1)
+
+        Tensor.training = temp
+
+        return dec_sequence
