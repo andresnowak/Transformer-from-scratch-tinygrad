@@ -5,7 +5,7 @@ from typing import Iterator, Tuple, Union
 from tqdm import tqdm
 
 from tinygrad.nn.state import get_parameters
-from tinygrad.nn.optim import AdamW
+from tinygrad.nn.optim import Adam
 from tinygrad.tensor import Tensor
 from tinygrad.engine.jit import TinyJit
 
@@ -102,17 +102,17 @@ def evalauate(model: DecoderTransformer, test_dataset: AdderDataset, return_pred
 
 if __name__ == "__main__":
     lr = 3e-4
-    epochs = 30
+    epochs = 60
     batch_size = 64
     seq_len = 6
 
-    model = DecoderTransformer(max_len=seq_len, vocab_dim=10, embed_dim=128, num_heads=4, layers=3)
+    model = DecoderTransformer(max_len=seq_len, vocab_dim=10, embed_dim=128, num_heads=4, layers=3, ff_dim=256)
 
     X_train, Y_train, X_test, Y_test = make_dataset()
     train_dataset = AdderDataset(X_train, Y_train, batch_size)
     test_dataset = AdderDataset(X_test, Y_test, batch_size, False)
 
-    optim = AdamW(get_parameters(model), lr=lr)
+    optim = Adam(get_parameters(model), lr=lr)
 
     def loss_fn(out: Tensor, y: Tensor):
         return out.sparse_categorical_crossentropy(y)

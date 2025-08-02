@@ -5,7 +5,7 @@ from typing import Iterator, Tuple, Union
 from tqdm import tqdm
 
 from tinygrad.nn.state import get_parameters
-from tinygrad.nn.optim import AdamW
+from tinygrad.nn.optim import Adam
 from tinygrad.tensor import Tensor
 from tinygrad.engine.jit import TinyJit
 
@@ -78,14 +78,14 @@ if __name__ == "__main__":
     lr = 5e-4
     epochs = 1
     batch_size = 64
-    seq_len = 32
+    seq_len = 128
 
     text = open("dataset/shakespear.txt", "r").read()
     train_dataset = StoryDataset(text, batch_size, seq_len)
 
-    model = DecoderTransformer(max_len=seq_len, vocab_dim=train_dataset.vocab_size, embed_dim=128, num_heads=4, layers=3)
+    model = DecoderTransformer(max_len=seq_len, vocab_dim=train_dataset.vocab_size, embed_dim=128, num_heads=8, layers=4, ff_dim=256)
 
-    optim = AdamW(get_parameters(model), lr=lr)
+    optim = Adam(get_parameters(model), lr=lr)
 
     def loss_fn(out: Tensor, y: Tensor):
         return out.sparse_categorical_crossentropy(y)

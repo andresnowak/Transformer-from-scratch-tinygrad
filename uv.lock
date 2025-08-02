@@ -167,7 +167,7 @@ wheels = [
 [[package]]
 name = "tinygrad"
 version = "0.10.3"
-source = { git = "https://github.com/tinygrad/tinygrad?rev=3892ec8264122bc742fad79e75f5a4f83400bd90#3892ec8264122bc742fad79e75f5a4f83400bd90" }
+source = { git = "https://github.com/tinygrad/tinygrad?rev=8cc2d64edbd35203abdd52f02d814c26a6ee42b7#8cc2d64edbd35203abdd52f02d814c26a6ee42b7" }
 
 [[package]]
 name = "tqdm"
@@ -195,6 +195,6 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "numpy", specifier = ">=2.2.6" },
-    { name = "tinygrad", git = "https://github.com/tinygrad/tinygrad?rev=3892ec8264122bc742fad79e75f5a4f83400bd90" },
+    { name = "tinygrad", git = "https://github.com/tinygrad/tinygrad?rev=8cc2d64edbd35203abdd52f02d814c26a6ee42b7" },
     { name = "tqdm", specifier = ">=4.67.1" },
 ]

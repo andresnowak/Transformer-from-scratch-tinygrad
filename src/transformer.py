@@ -10,7 +10,7 @@ import functools
 
 
 class TransformerBlock:
-    def __init__(self, embed_dim: int, num_heads: int, dropout: int = 0.1):
+    def __init__(self, embed_dim: int, num_heads: int, ff_dim: int, dropout: int = 0.1):
         assert embed_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
 
         self.num_heads = num_heads
@@ -37,7 +37,8 @@ class TransformerBlock:
             Tensor.zeros(embed_dim),
         )
 
-        self.ff = (Tensor.scaled_uniform(embed_dim, embed_dim), Tensor.zeros(embed_dim))
+        self.ff1 = (Tensor.scaled_uniform(embed_dim, ff_dim), Tensor.zeros(ff_dim))
+        self.ff2 = (Tensor.scaled_uniform(ff_dim, embed_dim), Tensor.zeros(embed_dim))
 
         self.ln1 = (Tensor.ones(embed_dim), Tensor.zeros(embed_dim))
         self.ln2 = (Tensor.ones(embed_dim), Tensor.zeros(embed_dim))
@@ -120,24 +121,25 @@ class TransformerBlock:
 
         # ff
         x = x.layernorm().linear(*self.ln2)  # pre-norm
-        ff_out = x.linear(*self.ff).relu().dropout(self.dropout)
+        ff_out_1 = x.linear(*self.ff1).relu()
+        ff_out_2 = ff_out_1.linear(*self.ff2).dropout(self.dropout)
 
         # residual
-        x = x + ff_out
+        x = x + ff_out_2
 
         return x  # (batch, seq_len, embed_dim)
 
 
 class DecoderTransformer:
     def __init__(
-        self, max_len: int, vocab_dim: int, embed_dim: int, num_heads: int, layers: int
+        self, max_len: int, vocab_dim: int, embed_dim: int, num_heads: int, layers: int, ff_dim: int
     ):
         self.vocab_dim = vocab_dim
         self.embed_dim = embed_dim
         self.max_len = max_len
 
         self.transformer_blocks = [
-            TransformerBlock(embed_dim, num_heads) for _ in range(layers)
+            TransformerBlock(embed_dim, num_heads, ff_dim) for _ in range(layers)
         ]
 
         self.pos_embed = Tensor.scaled_uniform(max_len, embed_dim)
@@ -173,7 +175,7 @@ class DecoderTransformer:
 
         x = x.dot(self.proj_ff)  # (batch, seq_len, vocab_dim)
 
-        if logits_only:
+        if logits_only: # Non tinygrad operations are not supported by jit
             return x
 
         return x.softmax(axis=-1)  # (batch, seq_len, vocab_dim)
@@ -225,3 +227,52 @@ class DecoderTransformer:
         Tensor.training = temp
 
         return sequence
+
+
+class EncoderTransformer:
+    def __init__(
+        self, max_len: int, vocab_dim: int, embed_dim: int, num_heads: int, layers: int, ff_dim: int
+    ):
+        self.vocab_dim = vocab_dim
+        self.embed_dim = embed_dim
+        self.max_len = max_len
+
+        self.transformer_blocks = [
+            TransformerBlock(embed_dim, num_heads, ff_dim) for _ in range(layers)
+        ]
+
+        self.pos_embed = Tensor.scaled_uniform(max_len, embed_dim)
+        self.embedder = Tensor.scaled_uniform(vocab_dim, embed_dim)
+        self.proj_ff = Tensor.scaled_uniform(embed_dim, vocab_dim)
+
+    def forward(self, x: Tensor, logits_only: bool = True):
+        """
+        Multi-head scaled-dot-product attention.
+
+        Parameters
+        ----------
+        x : Tensor
+            Input sequence of shape (batch, seq_len, 1).
+
+        Returns
+        -------
+        Tensor
+            Output tensor of shape (batch, seq_len, vocab_dim).
+        """
+
+        batch_size = x.shape[0]
+        seq_len = x.shape[1]
+
+        onehot_feat = x.int().one_hot(self.vocab_dim)
+
+        x = onehot_feat.dot(self.embedder)  # (batch, seq_len, embed_dim)
+        x = x + self.pos_embed[:seq_len, :]
+
+        x = functools.reduce(lambda x, f: f(x, None), self.transformer_blocks, x)
+
+        x = x.dot(self.proj_ff)  # (batch, seq_len, vocab_dim)
+
+        if logits_only:
+            return x
+
+        return x.softmax(axis=-1)  # (batch, seq_len, vocab_dim)
