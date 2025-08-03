@@ -1,6 +1,9 @@
 from tinygrad.tensor import Tensor
 import math
 import functools
+from typing import Tuple
+
+from src.mixture_feedforward import MoELayer
 
 # Implementation from attention is all you need https://arxiv.org/pdf/1706.03762, with dropout and prenorm
 # And https://github.com/tinygrad/tinygrad/blob/24dd0d52edfc32ab6f887f22752145255d8524dc/extra/models/transformer.py#L5
@@ -151,6 +154,55 @@ class TransformerBlock:
         return x  # (batch, seq_len, embed_dim)
 
 
+class MoETransformerBlock:
+    def __init__(
+        self, embed_dim: int, num_heads: int, ff_dim: int, dropout: float = 0.1, num_experts: int = 4, top_k: int = 2
+    ):
+        self.dropout = dropout
+
+        self.attn_block = MultiHeadAttn(embed_dim=embed_dim, num_heads=num_heads)
+
+        self.moe_layer = MoELayer(embed_dim, embed_dim, num_experts, top_k=top_k, hidden_dim=ff_dim)
+
+        self.ln1 = (Tensor.ones(embed_dim), Tensor.zeros(embed_dim))
+        self.ln2 = (Tensor.ones(embed_dim), Tensor.zeros(embed_dim))
+
+    def __call__(self, x: Tensor, attn_mask: Tensor | None = None) -> Tensor:
+        """
+        Transformer block
+
+        Parameters
+        ----------
+        x : Tensor
+            Input sequence of shape (batch, seq_len, embed_dim).
+        attn_mask : Tensor or None, optional
+            Boolean mask of shape (batch, seq_len, seq_len).
+            Positions that are ``False`` will be masked out (set to -inf)
+            before the softmax.  If ``None``, no masking is applied.
+
+        Returns
+        -------
+        Tensor
+            Output tensor of shape (batch, heads, seq_len, key_dimension).
+        """
+
+        # pre-norm
+        q_k_v = x.layernorm().linear(*self.ln1)
+        attn_score = self.attn_block(q_k_v, q_k_v, q_k_v, attn_mask).dropout(
+            self.dropout
+        )
+        x = x + attn_score
+
+        # ff
+        x = x.layernorm().linear(*self.ln2)  # pre-norm
+        ff_out = self.moe_layer(x)
+
+        # residual
+        x = x + ff_out
+
+        return x  # (batch, seq_len, embed_dim)
+
+
 class EncoderDecoderTransformerBlock:
     def __init__(
         self, embed_dim: int, num_heads: int, ff_dim: int, dropout: float = 0.1
@@ -218,13 +270,14 @@ class DecoderTransformer:
         num_heads: int,
         layers: int,
         ff_dim: int,
+        use_MoE: None | Tuple[int, int] = None
     ):
         self.vocab_dim = vocab_dim
         self.embed_dim = embed_dim
         self.max_len = max_len
 
         self.transformer_blocks = [
-            TransformerBlock(embed_dim, num_heads, ff_dim) for _ in range(layers)
+            MoETransformerBlock(embed_dim, num_heads, ff_dim, num_experts=use_MoE[0], top_k=use_MoE[1]) if use_MoE is not None  else TransformerBlock(embed_dim, num_heads, ff_dim) for _ in range(layers)
         ]
 
         self.pos_embed = Tensor.scaled_uniform(max_len, embed_dim)
