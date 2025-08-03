@@ -137,7 +137,7 @@ if __name__ == "__main__":
         embed_dim=128,
         num_heads=8,
         layers=4,
-        ff_dim=256,
+        ff_dim=128 * 4,
     )
 
     optim = Adam(get_parameters(model), lr=lr)

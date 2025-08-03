@@ -106,7 +106,7 @@ if __name__ == "__main__":
     batch_size = 64
     seq_len = 6
 
-    model = DecoderTransformer(max_len=seq_len, vocab_dim=10, embed_dim=128, num_heads=4, layers=3, ff_dim=256)
+    model = DecoderTransformer(max_len=seq_len, vocab_dim=10, embed_dim=128, num_heads=4, layers=3, ff_dim=128 * 4)
 
     X_train, Y_train, X_test, Y_test = make_dataset()
     train_dataset = AdderDataset(X_train, Y_train, batch_size)

@@ -85,7 +85,7 @@ if __name__ == "__main__":
     text = open("dataset/shakespear.txt", "r").read()
     train_dataset = StoryDataset(text, batch_size, seq_len)
 
-    model = DecoderTransformer(max_len=seq_len, vocab_dim=train_dataset.vocab_size, embed_dim=128, num_heads=8, layers=4, ff_dim=256)
+    model = DecoderTransformer(max_len=seq_len, vocab_dim=train_dataset.vocab_size, embed_dim=128, num_heads=8, layers=4, ff_dim=128 * 4)
 
     optim = Adam(get_parameters(model), lr=lr)
 
