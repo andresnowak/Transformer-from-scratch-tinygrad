@@ -33,6 +33,7 @@ python eng_es_translator.py
 * **Pure TinyGrad** – Model implemented in Tinygrad completely (but dataset creation uses Numpy, Torch and Hugginface dataset)
 * **Pre-norm** residual paths and **scaled-dot-product** attention as in the paper.
 * **Encoder-decoder** variant with cross-attention for seq-to-seq tasks.
+* **MoE** Implemented Decoder MoE
 * **Generation utilities** (`generate`) with top-k sampling and temperature.
 
 ---
@@ -42,6 +43,7 @@ python eng_es_translator.py
 | File | Purpose |
 |---|---|
 | `src/transformer.py` | Core model code (`DecoderTransformer`, `EncoderDecoderTransformer`, `MultiHeadAttn`, etc.) |
+| `src/mixture_feedforward.py` | Implementation of the MoE feedforward layer |
 | `adder.py` | Trains a tiny Transformer to add two 2-digit numbers (e.g., 42 + 17 = 059). |
 | `story_gen.py` | Character-level language model trained on Shakespeare; generates text auto-regressively. |
 | `eng_es_translator.py` | English → Spanish translation fine-tuned on a small Hugging Face dataset. |
