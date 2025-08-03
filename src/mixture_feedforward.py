@@ -78,3 +78,31 @@ class MoELayer:
         out = (gate_weights.unsqueeze(-1) * o).transpose(1, 2).sum(axis=-1)
 
         return out.reshape(B, S, D)
+
+
+def balancing_loss(gate_weights: Tensor, num_experts: int, alpha: float = 1.0):
+    """Calculates the load balancing loss.
+        Args:
+            gate_weights: Tensor of shape [batch_size * seq_len, num_experts]
+            num_experts: Total number of experts.
+            alpha: scale hyperparameter
+
+        Returns:
+            loss tensor.
+    """
+
+    num_tokens = gate_weights.shape[0] # Batch  * seq_len
+    tokens_per_expert = gate_weights.sum(axis=0)
+    # Need average routing probability per expert
+    # and fraction of tokens routed to each expert
+
+    f_i = tokens_per_expert / num_tokens
+
+    # Calculate average routing probability per expert (P_i). The mean of the gate weights for each expert
+    mean_prob_per_expert = gate_weights.mean(axis=0) # Shape [num_experts]
+    P_i = mean_prob_per_expert
+
+    # Calculate the loss: alpha * num_experts * sum(f_i * P_i)
+    # alpha is a hyperparameter to scale the loss
+    loss = num_experts * (f_i * P_i).sum(axis=0)
+    return loss
