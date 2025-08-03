@@ -108,6 +108,8 @@ if __name__ == "__main__":
 
     model = DecoderTransformer(max_len=seq_len, vocab_dim=10, embed_dim=128, num_heads=4, layers=3, ff_dim=128 * 4, use_MoE=None)
 
+    print(len(get_parameters(model)))
+
     X_train, Y_train, X_test, Y_test = make_dataset()
     train_dataset = AdderDataset(X_train, Y_train, batch_size)
     test_dataset = AdderDataset(X_test, Y_test, batch_size, False)

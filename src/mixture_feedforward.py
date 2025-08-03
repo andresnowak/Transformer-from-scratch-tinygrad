@@ -61,6 +61,8 @@ class MoELayer:
         B, S, D = int(B), int(S), int(D)
         x_flat = x.reshape(-1, D)  # (Batch * seq_len, input_dim("embed_dim"))
 
+        assert D == self.output_dim
+
         gate_weights, k_indices = self.gate(x_flat)  # probs, indices
 
         # MoE without loop (but not the most efficient as we do complete operation and not sparse)
