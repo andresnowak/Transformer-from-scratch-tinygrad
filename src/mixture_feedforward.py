@@ -65,6 +65,7 @@ class MoELayer:
 
         # MoE without loop (but not the most efficient as we do complete operation and not sparse)
         # Because gates is already 0 where expert is not activated we can do an einsum
+        # I think implementation is correct?
         h = x_flat.reshape(B * S, 1, 1, D).dot(self.ff_1_experts).relu()
 
         # we reshape to do (B*S, 1, 1, D) @ (E, D, H), basically we will do 1, D @ D, H E times and then B*S times, because we need to do it for every expert and each position in B*S
